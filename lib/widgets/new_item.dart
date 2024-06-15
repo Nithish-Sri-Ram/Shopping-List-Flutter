@@ -1,9 +1,10 @@
-import 'package:flutter/cupertino.dart';
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
-import 'package:flutter/widgets.dart';
 import 'package:shopping_list/data/categories.dart';
 import 'package:shopping_list/modals/category.dart';
 import 'package:shopping_list/modals/grocerry_item.dart';
+import 'package:http/http.dart' as http;
 
 class NewItem extends StatefulWidget {
   const NewItem({super.key});
@@ -19,17 +20,50 @@ class _NewItemState extends State<NewItem> {
   var _enteredName = '';
   var _enteredQuantity = 1;
   var _selectedCategory = categories[Categories.other]!;
+  var _isSending =
+      false; //This will be used to show the loading spinner when an objcet is added so the user might not click the button again
 
-  void _saveItem() {
+  void _saveItem() async {
     if (_formKey.currentState!.validate()) {
       //this will call the validator function of the form and also we know it wont be null because we create the key inside the build function
       _formKey.currentState!
           .save(); //this will call the save function of the form and another special function will be triggered - (onSaved)
+      setState(() {
+        _isSending = true;
+      });
+      final url = Uri.https(
+          'shopping-list-flutter-2ede3-default-rtdb.firebaseio.com',
+          'Shopping-List.json'); //This second argument createas a node in the mentioned name, we can give any name and we can create multipe nodes as required by the app
+      //In the rules section of the firebase we can set the rules for the database set read and write as true so it will allow all the users to read and write the data - it will aloow all incoming requests
+      final response = await http.post(
+          url, //the post method gives us a future object, by adding the await method dart indirectly access the then method of the future object - we could alternatively use the then method too
+          headers: {
+            //The keys are header identifiers and the values are settings for those headers, here we are having only one headeer
+            'Content-type':
+                'application/json', //Rhis will help firebase understand how the data is formatted - which we are sending to it
+          },
+          body: json.encode({
+            //Here the body needs that is formatted as json so we need to convert the data into json format
+            'name': _enteredName,
+            'quantity': _enteredQuantity,
+            'category': _selectedCategory.name,
+          }));
+
+      //Since we get the key value here we can use it to update the item in the list
+      final Map<String, dynamic> responseData = json.decode(response.body);
+
+      //context - should't be used after async await
+      if (!context
+          .mounted) //if the context is not mounted - if the widget is not on the screen it will return
+      {
+        return;
+      }
       Navigator.of(context).pop(GroceryItem(
-          id: DateTime.now().toString(),
-          name: _enteredName,
-          quantity: _enteredQuantity,
-          category: _selectedCategory));
+        id: responseData['name'],
+        name: _enteredName,
+        quantity: _enteredQuantity,
+        category: _selectedCategory,
+      )); //flutter doesnt know with certainity that this context was same as the one for which we awaited the response - for eg: we could have navigated away from this widget
     }
   }
 
@@ -129,12 +163,22 @@ class _NewItemState extends State<NewItem> {
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   TextButton(
-                      onPressed: () {
-                        _formKey.currentState!.reset();
-                      },
+                      onPressed: _isSending
+                          ? null
+                          : () {
+                              _formKey.currentState!.reset();
+                            },
                       child: const Text('Reset')),
                   ElevatedButton(
-                      onPressed: _saveItem, child: const Text('Add Item'))
+                    onPressed: _isSending ? null : _saveItem,
+                    child: _isSending
+                        ? const SizedBox(
+                            height: 16,
+                            width: 16,
+                            child: CircularProgressIndicator(),
+                          )
+                        : const Text('Add Item'),
+                  )
                 ],
               )
             ],
